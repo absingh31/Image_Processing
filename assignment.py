@@ -1,64 +1,64 @@
-__author__ = 'Charlie'
-import os, sys, inspect
-import cv2
+# import the necessary packages
+from scipy.spatial import distance as dist
+from imutils import perspective
+from imutils import contours
 import numpy as np
 import argparse
-
-# Info:
-# cmd_folder = os.path.dirname(os.path.abspath(__file__))
-# __file__ fails if script is called in different ways on Windows
-# __file__ fails if someone does os.chdir() before
-# sys.argv[0] also fails because it doesn't not always contains the path
-cmd_subfolder = os.path.realpath(os.path.abspath(os.path.join(os.path.split(inspect.getfile(inspect.currentframe()))[0],"..","Image_Lib")))
-if cmd_subfolder not in sys.path:
-    sys.path.insert(0, cmd_subfolder)
-
-
+import imutils
+import cv2
+ 
+def midpoint(ptA, ptB):
+	return ((ptA[0] + ptB[0]) * 0.5, (ptA[1] + ptB[1]) * 0.5)
+ 
+# construct the argument parse and parse the arguments
 ap = argparse.ArgumentParser()
-ap.add_argument("-s", "--source", required = True, help = "Path to source image")
-ap.add_argument("-t", "--target", required = True, help = "Path to target image")
-
+ap.add_argument("-i", "--image", required=True,
+	help="path to the input image")
+ap.add_argument("-w", "--width", type=float, required=True,
+	help="width of the left-most object in the image (in inches)")
 args = vars(ap.parse_args())
-source = cv2.cvtColor(cv2.imread(args["source"]), cv2.COLOR_BGR2LAB).astype("float32")
-target = cv2.cvtColor(cv2.imread(args["target"]), cv2.COLOR_BGR2LAB).astype("float32")
 
-(l, a, b) = cv2.split(source)
-(srcLMean, srcLStd) = (l.mean(), l.std())
-(srcAMean, srcAStd) = (a.mean(), a.std())
-(srcBMean, srcBStd) = (b.mean(), b.std())
+# load the image, convert it to grayscale, and blur it slightly
+image = cv2.imread(args["image"])
+gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+gray = cv2.GaussianBlur(gray, (7, 7), 0)
+ 
+# perform edge detection, then perform a dilation + erosion to
+# close gaps in between object edges
+edged = cv2.Canny(gray, 50, 100)
+edged = cv2.dilate(edged, None, iterations=1)
+edged = cv2.erode(edged, None, iterations=1)
+ 
+# find contours in the edge map
+cnts = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL,
+	cv2.CHAIN_APPROX_SIMPLE)
+cnts = cnts[0] if imutils.is_cv2() else cnts[1]
+ 
+# sort the contours from left-to-right and, then initialize the
+# distance colors and reference object
+(cnts, _) = contours.sort_contours(cnts)
+colors = ((0, 0, 255), (240, 0, 159), (0, 165, 255), (255, 255, 0),
+	(255, 0, 255))
+refObj = None
 
-(l, a, b) = cv2.split(target)
-(tarLMean, tarLStd) = (l.mean(), l.std())
-(tarAMean, tarAStd) = (a.mean(), a.std())
-(tarBMean, tarBStd) = (b.mean(), b.std())
+# loop over the contours individually
+for c in cnts:
+	# if the contour is not sufficiently large, ignore it
+	if cv2.contourArea(c) < 100:
+		continue
+ 
+	# compute the rotated bounding box of the contour
+	box = cv2.minAreaRect(c)
+	box = cv2.cv.BoxPoints(box) if imutils.is_cv2() else cv2.boxPoints(box)
+	box = np.array(box, dtype="int")
+ 
+	# order the points in the contour such that they appear
+	# in top-left, top-right, bottom-right, and bottom-left
+	# order, then draw the outline of the rotated bounding
+	# box
+	box = perspective.order_points(box)
+ 
+	# compute the center of the bounding box
+	cX = np.average(box[:, 0])
+	cY = np.average(box[:, 1])
 
-#subtract mean value of image
-l -= tarLMean
-a -= tarAMean
-b -= tarBMean
-
-#scale std deviation based on source image
-l *= (tarLStd/srcLStd)
-a *= (tarAStd/srcAStd)
-b *= (tarBStd/srcBStd)
-
-#add source image mean to target
-l += srcLMean
-a += srcAMean
-b += srcBMean
-
-# clip the pixel intensities to [0, 255] if they fall outside
-# this range
-l = np.clip(l, 0, 255)
-a = np.clip(a, 0, 255)
-b = np.clip(b, 0, 255)
-
-# merge the channels together and convert back to the RGB color
-# space, being sure to utilize the 8-bit unsigned integer data
-# type
-transfer = cv2.merge([l, a, b])
-transfer = cv2.cvtColor(transfer.astype("uint8"), cv2.COLOR_LAB2BGR)
-
-cv2.imshow("Color Transform", transfer)
-cv2.waitKey()
-cv2.destroyAllWindows()
