@@ -12,7 +12,7 @@ class CBIR_Correlogram:
      Content Based Image Retrieval using Color Autocorrelogram
     """
 
-    def __init__(self, database='imageDB/', use_index=None, save_index=False):
+    def __init__(self, database='image/', use_index=None, save_index=False):
         self.database = database
 
         # index the database or load previously indexed database
